@@ -55,8 +55,9 @@ const App = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [enableNotification, setEnableNotification] = useState(true);
-    const [enableSystemAlert, setEnableSystemAlert] = useState(true);
+    const [enableSystemAlert, setEnableSystemAlert] = useState(false);
     const [enableSound, setEnableSound] = useState(true);
+    const [soundMode, setSoundMode] = useState('default'); // 'default' | 'loud'
 
     // Ref
     const timerIntervalRef = useRef(null);
@@ -70,6 +71,8 @@ const App = () => {
     const beforeUnloadHandlerRef = useRef(null);
     const settingsLoadedRef = useRef(false);
     const wasRunningRef = useRef(false);
+    const endTimeRef = useRef(null); // 用來計算剩餘時間的絕對時間戳 (ms)
+    const scheduledBeepRef = useRef(null);
 
     const persistSettings = useCallback(
         (overrides = {}) => {
@@ -79,6 +82,7 @@ const App = () => {
                 enableNotification,
                 enableSystemAlert,
                 enableSound,
+                soundMode,
                 ...overrides,
             };
             try {
@@ -87,7 +91,7 @@ const App = () => {
                 console.log('[storage] save error:', err);
             }
         },
-        [durationMinutes, enableNotification, enableSystemAlert, enableSound]
+        [durationMinutes, enableNotification, enableSystemAlert, enableSound, soundMode]
     );
 
     const setNotificationMode = useCallback(
@@ -103,25 +107,85 @@ const App = () => {
     );
 
     // --- 音效邏輯 ---
-    const playAlarmSound = useCallback(() => {
-        if (!audioCtxRef.current) {
-            audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    const cancelScheduledBeep = useCallback(() => {
+        if (scheduledBeepRef.current?.nodes) {
+            scheduledBeepRef.current.nodes.forEach((node) => {
+                try {
+                    node.stop();
+                } catch (e) {
+                    // ignore
+                }
+            });
         }
-        const audioCtx = audioCtxRef.current;
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
-        oscillator.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.1);
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.5);
+        scheduledBeepRef.current = null;
     }, []);
+
+    const scheduleAlarmSound = useCallback(
+        (targetTimeMs, mode = soundMode) => {
+            if (!enableSound) return;
+            if (!audioCtxRef.current) {
+                audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const audioCtx = audioCtxRef.current;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const nowMs = Date.now();
+            const delaySec = Math.max(0, (targetTimeMs - nowMs) / 1000);
+            const baseStart = audioCtx.currentTime + delaySec;
+
+            // 定義音效 pattern
+            const patterns =
+                mode === 'loud'
+                    ? [
+                          // 多段強烈旋律，約 5.5 秒
+                          { offset: 0.0, duration: 0.4, startFreq: 720, endFreq: 1000, gain: 0.18 },
+                          { offset: 0.45, duration: 0.4, startFreq: 820, endFreq: 1120, gain: 0.19 },
+                          { offset: 0.9, duration: 0.45, startFreq: 900, endFreq: 1250, gain: 0.2 },
+                          { offset: 1.4, duration: 0.5, startFreq: 980, endFreq: 1350, gain: 0.21 },
+                          { offset: 2.0, duration: 0.45, startFreq: 860, endFreq: 1180, gain: 0.19 },
+                          { offset: 2.5, duration: 0.5, startFreq: 1040, endFreq: 1400, gain: 0.22 },
+                          { offset: 3.1, duration: 0.5, startFreq: 920, endFreq: 1300, gain: 0.2 },
+                          { offset: 3.7, duration: 0.45, startFreq: 1080, endFreq: 1450, gain: 0.22 },
+                          { offset: 4.2, duration: 0.55, startFreq: 950, endFreq: 1350, gain: 0.21 },
+                          { offset: 4.8, duration: 0.6, startFreq: 1100, endFreq: 1500, gain: 0.22 },
+                      ]
+                    : [
+                          { offset: 0.0, duration: 0.5, startFreq: 440, endFreq: 880, gain: 0.1 },
+                      ];
+
+            cancelScheduledBeep();
+            const nodes = [];
+
+            patterns.forEach(({ offset, duration, startFreq, endFreq, gain }) => {
+                const startAt = baseStart + offset;
+                const endAt = startAt + duration;
+
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(startFreq, startAt);
+                osc.frequency.exponentialRampToValueAtTime(endFreq, startAt + 0.1);
+                g.gain.setValueAtTime(gain, startAt);
+                g.gain.exponentialRampToValueAtTime(0.001, endAt);
+                osc.connect(g);
+                g.connect(audioCtx.destination);
+                osc.start(startAt);
+                osc.stop(endAt);
+                nodes.push(osc);
+            });
+
+            scheduledBeepRef.current = { nodes };
+        },
+        [enableSound, soundMode, cancelScheduledBeep]
+    );
+
+    const playSoundPreview = useCallback(
+        (mode) => {
+            const target = Date.now() + 50;
+            scheduleAlarmSound(target, mode);
+        },
+        [scheduleAlarmSound]
+    );
 
     // --- 輔助計算 (角度、百分比、長度) ---
     const percentage = totalDuration > 0 ? timeLeft / totalDuration : 0;
@@ -193,9 +257,8 @@ const App = () => {
         console.log('[timer] finished, timeLeft reached 0');
         setIsRunning(false);
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        if (enableSound) {
-            playAlarmSound();
-        }
+        timerIntervalRef.current = null;
+        endTimeRef.current = null;
         setIsAlertOpen(true);
         if (enableNotification) {
             triggerNotification();
@@ -221,36 +284,41 @@ const App = () => {
         //         }
         //     }, 0);
         // }
-    }, [enableSound, enableNotification, enableSystemAlert, playAlarmSound, triggerNotification]);
+    }, [enableNotification, enableSystemAlert, triggerNotification, cancelScheduledBeep]);
 
     const startTimer = useCallback(() => {
-        if (timeLeft <= 0) {
-            setTimeLeft(totalDuration);
-        }
+        const now = Date.now();
+        const remainingMs = (timeLeft > 0 ? timeLeft : totalDuration) * 1000;
+        endTimeRef.current = now + remainingMs;
         alertShownRef.current = false;
         setIsRunning(true);
-        
-        // 清除舊定時器
+
+        cancelScheduledBeep();
+        scheduleAlarmSound(endTimeRef.current, soundMode);
+
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
 
-        // 啟動新定時器
         timerIntervalRef.current = setInterval(() => {
-            setTimeLeft(prevTime => {
-                const newTime = prevTime - 1;
-                if (newTime <= 0) {
-                    // 使用 setTimeout 將 timerFinished 移出 setInterval 避免狀態更新混亂
-                    setTimeout(timerFinished, 0); 
-                    return 0;
-                }
-                return newTime;
-            });
-        }, 1000);
-    }, [timeLeft, totalDuration, timerFinished]);
+            if (!endTimeRef.current) return;
+            const msLeft = endTimeRef.current - Date.now();
+            if (msLeft <= 0) {
+                setTimeLeft(0);
+                clearInterval(timerIntervalRef.current);
+                timerIntervalRef.current = null;
+                setTimeout(timerFinished, 0);
+            } else {
+                setTimeLeft(Math.ceil(msLeft / 1000));
+            }
+        }, 500);
+    }, [timeLeft, totalDuration, timerFinished, cancelScheduledBeep, scheduleAlarmSound, soundMode]);
 
     const stopTimer = useCallback(() => {
         setIsRunning(false);
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    }, []);
+        timerIntervalRef.current = null;
+        endTimeRef.current = null;
+        cancelScheduledBeep();
+    }, [cancelScheduledBeep]);
 
     // 處理中心點擊
     const handleStartStop = () => {
@@ -286,6 +354,7 @@ const App = () => {
         setTotalDuration(restoredSeconds);
         setTimeLeft(restoredSeconds);
         alertShownRef.current = false;
+        endTimeRef.current = null;
         stopTimer();
     };
 
@@ -372,6 +441,9 @@ const App = () => {
                 if (typeof saved.enableSound === 'boolean') {
                     setEnableSound(saved.enableSound);
                 }
+                if (typeof saved.soundMode === 'string') {
+                    setSoundMode(saved.soundMode);
+                }
             }
             settingsLoadedRef.current = true;
             // 若無存檔，初次也寫入一次預設值，確保後續更新有基礎
@@ -413,7 +485,25 @@ const App = () => {
         };
     }, [handleDragMove, handleDragEnd]);
 
-    // 3. 確定狀態文字
+    // 3. 可見性改變時重新校正時間，避免背景頁節流
+    useEffect(() => {
+        const handleVisibility = () => {
+            if (!isRunning || !endTimeRef.current) return;
+            const msLeft = endTimeRef.current - Date.now();
+            if (msLeft <= 0) {
+                setTimeLeft(0);
+                if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+                timerIntervalRef.current = null;
+                setTimeout(timerFinished, 0);
+            } else {
+                setTimeLeft(Math.ceil(msLeft / 1000));
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => document.removeEventListener('visibilitychange', handleVisibility);
+    }, [isRunning, timerFinished]);
+
+    // 4. 確定狀態文字
     let statusText;
     if (isRunning && isDragging) {
         statusText = "調整中...";
@@ -612,10 +702,41 @@ const App = () => {
                                     const checked = e.target.checked;
                                     setEnableSound(checked);
                                     persistSettings({ enableSound: checked });
-                                }}
+                            }}
                                 className="settings-toggle"
                             />
                         </label>
+                        {enableSound && (
+                            <>
+                                <div className="sound-options">
+                                    <div className="mode-desc">點擊可立即試聽</div>
+                                    <div className="sound-segment">
+                                        <button
+                                            type="button"
+                                            className={`sound-pill ${soundMode === 'default' ? 'active' : ''}`}
+                                            onClick={() => {
+                                                setSoundMode('default');
+                                                persistSettings({ soundMode: 'default' });
+                                                playSoundPreview('default');
+                                            }}
+                                        >
+                                            預設音效
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={`sound-pill ${soundMode === 'loud' ? 'active' : ''}`}
+                                            onClick={() => {
+                                                setSoundMode('loud');
+                                                persistSettings({ soundMode: 'loud' });
+                                                playSoundPreview('loud');
+                                            }}
+                                        >
+                                            顯著音效
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                         <div className="settings-divider"></div>
                         <div className="mode-group">
                             <div className="mode-text">
