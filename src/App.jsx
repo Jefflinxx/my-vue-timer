@@ -275,15 +275,6 @@ const App = () => {
                 window.location.reload();
             }
         }
-        // 額外提供簡易 alert 以便快速驗證提醒是否觸發
-        // if (!alertShownRef.current) {
-        //     alertShownRef.current = true;
-        //     setTimeout(() => {
-        //         if (typeof window !== 'undefined') {
-        //             window.alert('時間到了！請休息眼睛，眺望遠方至少 20 秒。');
-        //         }
-        //     }, 0);
-        // }
     }, [enableNotification, enableSystemAlert, triggerNotification, cancelScheduledBeep]);
 
     const startTimer = useCallback(() => {
@@ -505,10 +496,10 @@ const App = () => {
 
     // 4. 確定狀態文字
     let statusText;
-    if (isRunning && isDragging) {
+    if (isDragging && wasRunningRef.current) {
         statusText = "調整中...";
     } else if (isRunning) {
-        statusText = "護眼中...";
+        statusText = "工作中...";
     } else if (timeLeft <= 0) {
         statusText = "時間到";
     } else {
