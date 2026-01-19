@@ -34,16 +34,6 @@ const AppFrame = ({ children }) => {
   }, [pathname]);
 
   useEffect(() => {
-    // Force a reflow after route change to diagnose layout cache issues.
-    const rafId = requestAnimationFrame(() => {
-      document.body.getBoundingClientRect();
-      window.dispatchEvent(new Event("resize"));
-    });
-
-    return () => cancelAnimationFrame(rafId);
-  }, [pathname]);
-
-  useEffect(() => {
     if (!menuOpen) return;
 
     const handlePointerDown = (event) => {

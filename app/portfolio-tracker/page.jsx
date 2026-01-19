@@ -764,7 +764,7 @@ const Root = styled.div`
   font-family: sans-serif;
   color: #1e293b;
 
-  width: 100%;
+  /* width: 100%; */
   /* border: 2px solid yellow; */
 `;
 

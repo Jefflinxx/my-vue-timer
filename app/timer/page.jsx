@@ -24,8 +24,8 @@ const FeatureWrapper = styled.div`
   position: relative;
   z-index: 1;
   /* max-width: 1220px; */
-  margin: 0 auto;
-  width: 100%;
+  /* margin: 0 auto; */
+  /* width: 100%; */
 
   /* border: 1px solid blue; */
 `;

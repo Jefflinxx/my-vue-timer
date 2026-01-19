@@ -1,6 +1,13 @@
 import AppFrame from "./components/AppFrame";
 import StyledComponentsRegistry from "./components/StyledComponentsRegistry";
 import GlobalStyles from "./components/GlobalStyles";
+import { Nunito } from "next/font/google";
+
+const nunito = Nunito({
+  subsets: ["latin"],
+  weight: ["300", "600", "800"],
+  display: "swap",
+});
 
 export const metadata = {
   title: "My Timer Hub",
@@ -9,7 +16,11 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="zh-Hant" style={{ backgroundColor: "#1b1917" }}>
+    <html
+      lang="zh-Hant"
+      className={nunito.className}
+      style={{ backgroundColor: "#1b1917" }}
+    >
       <body style={{ margin: 0, backgroundColor: "#1b1917" }}>
         <StyledComponentsRegistry>
           <GlobalStyles />
