@@ -79,15 +79,17 @@ const CardsScreen = styled.main`
   z-index: 1;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 48px 40px 80px;
+  padding: 74px 40px 80px;
   display: flex;
   flex-direction: column;
   gap: 24px;
   width: 100%;
   height: 100%;
 
+  /* border: 1px solid blue; */
+
   @media (max-width: 720px) {
-    padding: 32px 40px 60px;
+    padding: 74px 40px 60px;
   }
 `;
 
