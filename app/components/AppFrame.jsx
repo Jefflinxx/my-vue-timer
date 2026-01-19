@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import styled from "styled-components";
@@ -64,7 +65,7 @@ const AppFrame = ({ children }) => {
                 <NavTitle>My Apps</NavTitle>
               ) : (
                 <BackLink href="/" aria-label="返回入口">
-                  ←
+                  <ArrowLeft size={20} aria-hidden="true" />
                 </BackLink>
               )}
             </NavLeft>
