@@ -53,6 +53,8 @@ export default function PortfolioTracker() {
   const [fetchVersion, setFetchVersion] = useState(0);
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
 
   // --- State: 新增資產表單 ---
   const [newTicker, setNewTicker] = useState("TSLA");
@@ -358,6 +360,36 @@ export default function PortfolioTracker() {
     setNeedsRefresh(false);
   };
 
+  const importAssetsFromText = () => {
+    setImportError("");
+    if (!importText.trim()) {
+      setImportError("請貼上要匯入的資料。");
+      return;
+    }
+    try {
+      const parsed = JSON.parse(importText);
+      if (!Array.isArray(parsed)) {
+        throw new Error("資料格式錯誤，請貼上 assets 陣列。");
+      }
+      const normalized = parsed
+        .map((item) => ({
+          id: item.id || Math.random().toString(36).substr(2, 9),
+          ticker: String(item.ticker || "").toUpperCase(),
+          type: item.type || "us_stock",
+          date: item.date || null,
+          amount: Number(item.amount || 0),
+        }))
+        .filter((item) => item.ticker && Number.isFinite(item.amount) && item.amount > 0);
+      if (normalized.length === 0) {
+        throw new Error("沒有可匯入的資產資料。");
+      }
+      setAssets(normalized);
+      setNeedsRefresh(true);
+    } catch (err) {
+      setImportError(err.message || "匯入失敗，請確認格式。");
+    }
+  };
+
   // --- Pie Chart Data ---
   const pieDataCost = assets.map((a, idx) => ({
     name: getAssetDisplayName(a),
@@ -525,6 +557,24 @@ export default function PortfolioTracker() {
                     資產已更新，請點「生成圖表」重新計算。
                   </div>
                 )}
+
+                <div style={{ marginTop: "1.25rem" }}>
+                  <Label>匯入資產 (localStorage JSON)</Label>
+                  <ImportArea
+                    rows={4}
+                    value={importText}
+                    onChange={(e) => setImportText(e.target.value)}
+                    placeholder='貼上 JSON，例如: [{"id":"abc","ticker":"TSLA","type":"us_stock","date":null,"amount":1}]'
+                  />
+                  <PrimaryButton onClick={importAssetsFromText} style={{ marginTop: "0.75rem" }}>
+                    匯入資產
+                  </PrimaryButton>
+                  {importError && (
+                    <div style={{ marginTop: "0.5rem", color: "#b91c1c", fontSize: "0.9rem" }}>
+                      {importError}
+                    </div>
+                  )}
+                </div>
               </AssetListCard>
             </LeftColumn>
             <RightColumn>
@@ -821,6 +871,12 @@ const Input = styled.input`
 
 const Select = styled.select`
   ${inputBase}
+`;
+
+const ImportArea = styled.textarea`
+  ${inputBase}
+  min-height: 120px;
+  resize: vertical;
 `;
 
 const PrimaryButton = styled.button`
