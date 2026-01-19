@@ -22,7 +22,7 @@ const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"
 
 // A small list of example tickers for the dropdown.
 const exampleTickers = {
-  us_stock: ["TSLA", "GOOGL", "VT", "IKBR"],
+  us_stock: ["TSLA", "GOOGL", "VT", "IBKR"],
   tw_stock: ["2330", "006208"],
   crypto: ["BTC", "ETH", "BNB"],
   cash_usd: ["USD"],

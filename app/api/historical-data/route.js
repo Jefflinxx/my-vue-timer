@@ -73,6 +73,9 @@ async function fetchYahooHistoricalData(symbol) {
     return {};
   }
   const data = await response.json();
+  if (data?.chart?.error?.description) {
+    throw new Error(`Yahoo Finance error for ${symbol}: ${data.chart.error.description}`);
+  }
   const result = data?.chart?.result?.[0];
   if (!result || !result.timestamp || !result.indicators?.quote?.[0]?.close) {
     return {};
