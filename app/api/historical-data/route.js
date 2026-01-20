@@ -36,7 +36,7 @@ async function getCoinGeckoId(ticker) {
   return coin ? coin.id : null;
 }
 
-async function getUsStockHistoricalData(ticker) {
+async function getUsStockHistoricalData(ticker, startDate) {
   if (!ALPHA_VANTAGE_API_KEY || ALPHA_VANTAGE_API_KEY === "YOUR_API_KEY_HERE") {
     throw new Error("Alpha Vantage API key is not set.");
   }
@@ -66,8 +66,19 @@ async function getUsStockHistoricalData(ticker) {
   return formattedData;
 }
 
-async function fetchYahooHistoricalData(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`;
+async function fetchYahooHistoricalData(symbol, startDate, endDate) {
+  let url;
+  if (startDate) {
+    const startDateObj = new Date(startDate);
+    startDateObj.setDate(startDateObj.getDate() - 7);
+    const start = Math.floor(startDateObj.getTime() / 1000);
+    const end = endDate
+      ? Math.floor(new Date(endDate).getTime() / 1000)
+      : Math.floor(Date.now() / 1000);
+    url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&period1=${start}&period2=${end}`;
+  } else {
+    url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`;
+  }
   const response = await fetch(url);
   if (!response.ok) {
     return {};
@@ -92,14 +103,14 @@ async function fetchYahooHistoricalData(symbol) {
   return formattedData;
 }
 
-async function getTaiwanStockHistoricalData(ticker) {
+async function getTaiwanStockHistoricalData(ticker, startDate, endDate) {
   const baseSymbol = ticker.includes(".") ? ticker : `${ticker}.TW`;
-  const formattedData = await fetchYahooHistoricalData(baseSymbol);
+  const formattedData = await fetchYahooHistoricalData(baseSymbol, startDate, endDate);
   if (Object.keys(formattedData).length > 0) {
     return formattedData;
   }
   if (!ticker.includes(".")) {
-    const otcData = await fetchYahooHistoricalData(`${ticker}.TWO`);
+    const otcData = await fetchYahooHistoricalData(`${ticker}.TWO`, startDate, endDate);
     if (Object.keys(otcData).length > 0) {
       return otcData;
     }
@@ -137,6 +148,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const ticker = searchParams.get("ticker");
   const type = searchParams.get("type");
+  const start = searchParams.get("start");
 
   if (!ticker || !type) {
     return NextResponse.json({ error: "Ticker and type are required" }, { status: 400 });
@@ -144,12 +156,22 @@ export async function GET(request) {
 
   try {
     let data;
-    if (type === "stock") {
-      data = await getUsStockHistoricalData(ticker);
-    } else if (type === "us_stock") {
-      data = await getUsStockHistoricalData(ticker);
+    const today = new Date().toISOString().split("T")[0];
+    const end = searchParams.get("end") || today;
+    const startDate = start || null;
+    const shouldUseYahoo =
+      startDate && !Number.isNaN(new Date(startDate).getTime())
+        ? new Date(startDate) < new Date(Date.now() - 120 * 24 * 60 * 60 * 1000)
+        : false;
+
+    if (type === "stock" || type === "us_stock") {
+      if (shouldUseYahoo) {
+        data = await fetchYahooHistoricalData(ticker, startDate, end);
+      } else {
+        data = await getUsStockHistoricalData(ticker, startDate);
+      }
     } else if (type === "tw_stock") {
-      data = await getTaiwanStockHistoricalData(ticker);
+      data = await getTaiwanStockHistoricalData(ticker, startDate, end);
     } else if (type === "crypto") {
       data = await getCryptoHistoricalData(ticker);
     } else {

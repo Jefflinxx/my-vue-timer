@@ -55,7 +55,10 @@ export default function PortfolioTracker() {
   const [hasHydrated, setHasHydrated] = useState(false);
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState("");
-  const [chartCache, setChartCache] = useState(null);
+  const [loadedCache, setLoadedCache] = useState(null);
+  const [loadedAssetKey, setLoadedAssetKey] = useState("");
+  const [selectedAssetIds, setSelectedAssetIds] = useState([]);
+  const [pendingSelectedIds, setPendingSelectedIds] = useState([]);
 
   // --- State: 新增資產表單 ---
   const [newTicker, setNewTicker] = useState("TSLA");
@@ -86,10 +89,10 @@ export default function PortfolioTracker() {
   }, [assets, hasHydrated]);
 
   useEffect(() => {
-    const savedChart = window.localStorage.getItem("portfolio_chart_cache");
+    const savedChart = window.localStorage.getItem("portfolio_loaded_data");
     if (savedChart) {
       try {
-        setChartCache(JSON.parse(savedChart));
+        setLoadedCache(JSON.parse(savedChart));
       } catch {
         // Ignore invalid localStorage data.
       }
@@ -97,18 +100,22 @@ export default function PortfolioTracker() {
   }, []);
 
   useEffect(() => {
-    if (!hasHydrated || !chartCache) return;
+    if (!hasHydrated || !loadedCache) return;
     const assetKey = JSON.stringify(assets);
-    if (chartCache.assetKey !== assetKey) return;
-    setPriceHistories(chartCache.priceHistories || {});
-    setFxRates(chartCache.fxRates || {});
-    setAllDates(chartCache.allDates || []);
-    setTimeIndex(chartCache.timeIndex || 0);
-    if (chartCache.chartDate) {
-      setChartDate(chartCache.chartDate);
+    if (loadedCache.loadedAssetKey !== assetKey) return;
+    setPriceHistories(loadedCache.priceHistories || {});
+    setFxRates(loadedCache.fxRates || {});
+    setAllDates(loadedCache.allDates || []);
+    setTimeIndex(loadedCache.timeIndex || 0);
+    if (loadedCache.chartDate) {
+      setChartDate(loadedCache.chartDate);
     }
+    const loadedIds = assets.map((asset) => asset.id);
+    setSelectedAssetIds(loadedIds);
+    setPendingSelectedIds(loadedIds);
+    setLoadedAssetKey(loadedCache.loadedAssetKey || "");
     setIsLoading(false);
-  }, [hasHydrated, chartCache, assets]);
+  }, [hasHydrated, loadedCache, assets]);
 
   useEffect(() => {
     const fetchAllHistories = async () => {
@@ -131,6 +138,10 @@ export default function PortfolioTracker() {
       const uniqueTickers = [
         ...new Set(assets.filter((a) => !isCashType(a.type)).map((a) => `${a.type}:${a.ticker}`)),
       ];
+      const requestedStart = assets
+        .map((asset) => asset.date)
+        .filter(Boolean)
+        .sort()[0];
       const histories = {};
       const needsTwFx = assets.some((a) => isUsdType(a.type));
 
@@ -138,7 +149,10 @@ export default function PortfolioTracker() {
         if (uniqueTickers.length > 0) {
           for (const tickerKey of uniqueTickers) {
             const [type, ticker] = tickerKey.split(":");
-            const response = await fetch(`/api/historical-data?ticker=${ticker}&type=${type}`);
+            const startParam = requestedStart ? `&start=${requestedStart}` : "";
+            const response = await fetch(
+              `/api/historical-data?ticker=${ticker}&type=${type}${startParam}`,
+            );
             if (!response.ok) {
               const errorInfo = await response.json();
               throw new Error(`Failed for ${ticker}: ${errorInfo.details || "Unknown error"}`);
@@ -226,14 +240,14 @@ export default function PortfolioTracker() {
         }
 
         const cachePayload = {
-          assetKey: JSON.stringify(assets),
+          loadedAssetKey: JSON.stringify(assets),
           priceHistories: histories,
           fxRates: ratesMap,
           allDates: sortedDates,
           timeIndex: sortedDates.length > 0 ? sortedDates.length - 1 : 0,
           chartDate,
         };
-        window.localStorage.setItem("portfolio_chart_cache", JSON.stringify(cachePayload));
+        window.localStorage.setItem("portfolio_loaded_data", JSON.stringify(cachePayload));
       } catch (e) {
         console.error("Data fetching error:", e);
         setError(e.message);
@@ -250,6 +264,11 @@ export default function PortfolioTracker() {
       setNeedsRefresh(true);
     }
   }, [chartDate]);
+
+  useEffect(() => {
+    if (!loadedAssetKey) return;
+    setSelectedAssetIds(pendingSelectedIds);
+  }, [pendingSelectedIds, loadedAssetKey]);
 
   const getValueAtOrBefore = (history, date) => {
     if (!history) return { value: 0, usedDate: date };
@@ -301,9 +320,10 @@ export default function PortfolioTracker() {
   };
 
   // --- 核心運算 Logic ---
+  const selectedAssetSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
   const chartAssets = useMemo(
-    () => assets.filter((asset) => asset.date),
-    [assets],
+    () => assets.filter((asset) => asset.date && selectedAssetSet.has(asset.id)),
+    [assets, selectedAssetSet],
   );
 
   const { processedHistory, assetShares, currentPortfolioValue } = useMemo(() => {
@@ -403,13 +423,19 @@ export default function PortfolioTracker() {
 
   const removeAsset = (id) => {
     setAssets(assets.filter((a) => a.id !== id));
+    setSelectedAssetIds((prev) => prev.filter((assetId) => assetId !== id));
+    setPendingSelectedIds((prev) => prev.filter((assetId) => assetId !== id));
     setNeedsRefresh(true);
   };
 
-  const generateCharts = () => {
+  const loadData = () => {
     if (!chartDate) return;
     setAssets((prev) => prev.map((asset) => ({ ...asset, date: chartDate })));
+    const loadedIds = assets.map((asset) => asset.id);
+    setSelectedAssetIds(loadedIds);
+    setPendingSelectedIds(loadedIds);
     setFetchVersion((v) => v + 1);
+    setLoadedAssetKey(JSON.stringify(assets));
     setNeedsRefresh(false);
   };
 
@@ -573,6 +599,22 @@ export default function PortfolioTracker() {
                 <AssetList>
                   {assets.map((asset) => (
                     <AssetItem key={asset.id}>
+                      <AssetSelect>
+                        <input
+                          type="checkbox"
+                          aria-label="選取此資產"
+                          checked={pendingSelectedIds.includes(asset.id)}
+                          disabled={!asset.date}
+                          onChange={(e) => {
+                            if (!asset.date) return;
+                            if (e.target.checked) {
+                              setPendingSelectedIds((prev) => [...new Set([...prev, asset.id])]);
+                            } else {
+                              setPendingSelectedIds((prev) => prev.filter((id) => id !== asset.id));
+                            }
+                          }}
+                        />
+                      </AssetSelect>
                       <div>
                         <AssetTicker>
                           {isCashType(asset.type)
@@ -602,12 +644,12 @@ export default function PortfolioTracker() {
                     onChange={(e) => setChartDate(e.target.value)}
                   />
                 </div>
-                <PrimaryButton onClick={generateCharts} style={{ marginTop: "0.75rem" }}>
-                  生成圖表
+                <PrimaryButton onClick={loadData} style={{ marginTop: "0.75rem" }}>
+                  載入資料
                 </PrimaryButton>
                 {needsRefresh && (
                   <div style={{ marginTop: "0.5rem", color: "#6b7280", fontSize: "0.9rem" }}>
-                    資產已更新，請點「生成圖表」重新計算。
+                    資產已更新，請點「載入資料」重新取得資料。
                   </div>
                 )}
 
@@ -979,6 +1021,23 @@ const AssetItem = styled.div`
 
   &:hover button {
     opacity: 1;
+  }
+`;
+
+const AssetSelect = styled.div`
+  margin-right: 0.75rem;
+  display: flex;
+  align-items: center;
+
+  input {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
+  input:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 `;
 
