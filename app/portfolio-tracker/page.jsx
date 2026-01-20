@@ -271,7 +271,15 @@ export default function PortfolioTracker() {
   const getAssetDisplayName = (asset) =>
     isCashType(asset.type) ? assetTypeLabels[asset.type] : asset.ticker;
   const formatTwd = (value) => `NT$${Math.round(value).toLocaleString()}`;
+  const formatCashInput = (asset) => {
+    const amount = Number(asset.amount || 0);
+    if (asset.type === "cash_usd") {
+      return `USD ${amount.toLocaleString()}`;
+    }
+    return `NT$${Math.round(amount).toLocaleString()}`;
+  };
   const getCostInTwd = (asset) => {
+    if (!asset.date) return 0;
     if (isCashType(asset.type)) {
       if (asset.type === "cash_usd") {
         const fxRate = getValueAtOrBefore(fxRates, asset.date).value;
@@ -293,12 +301,17 @@ export default function PortfolioTracker() {
   };
 
   // --- 核心運算 Logic ---
+  const chartAssets = useMemo(
+    () => assets.filter((asset) => asset.date),
+    [assets],
+  );
+
   const { processedHistory, assetShares, currentPortfolioValue } = useMemo(() => {
-    if (allDates.length === 0) {
+    if (allDates.length === 0 || chartAssets.length === 0) {
       return { processedHistory: [], assetShares: [], currentPortfolioValue: 0 };
     }
 
-    const calculatedShares = assets.map((asset) => {
+    const calculatedShares = chartAssets.map((asset) => {
       const historyForAsset = priceHistories[asset.ticker];
       const priceAtEntry = isCashType(asset.type)
         ? 1
@@ -353,7 +366,7 @@ export default function PortfolioTracker() {
     const finalHistory = history.map((day) => {
       const totalValue = day.totalValue;
       const finalDay = { ...day };
-      assets.forEach((asset) => {
+      chartAssets.forEach((asset) => {
         const val = finalDay[asset.ticker] || 0;
         finalDay[`${asset.ticker}_pct`] = totalValue > 0 ? (val / totalValue) * 100 : 0;
       });
@@ -367,7 +380,7 @@ export default function PortfolioTracker() {
       assetShares: calculatedShares,
       currentPortfolioValue: currentTotalValue,
     };
-  }, [assets, priceHistories, allDates, timeIndex, fxRates]);
+  }, [chartAssets, priceHistories, allDates, timeIndex, fxRates]);
 
   // --- Handlers ---
   const addAsset = () => {
@@ -431,7 +444,7 @@ export default function PortfolioTracker() {
   };
 
   // --- Pie Chart Data ---
-  const pieDataCost = assets.map((a, idx) => ({
+  const pieDataCost = chartAssets.map((a, idx) => ({
     name: getAssetDisplayName(a),
     value: getCostInTwd(a),
     fill: COLORS[idx % COLORS.length],
@@ -444,7 +457,7 @@ export default function PortfolioTracker() {
     if (!currentSnapshot) return [];
 
     const marketValues = new Map();
-    assets.forEach((asset) => {
+    chartAssets.forEach((asset) => {
       const key = asset.ticker;
       const displayName = getAssetDisplayName(asset);
       const currentValue = currentSnapshot[key] || 0;
@@ -459,7 +472,7 @@ export default function PortfolioTracker() {
         fill: COLORS[idx % COLORS.length],
       }))
       .filter((d) => d.value > 0);
-  }, [processedHistory, timeIndex, assets]);
+  }, [processedHistory, timeIndex, chartAssets]);
 
   const totalCost = pieDataCost.reduce((sum, a) => sum + a.value, 0);
   const totalMarket = pieDataMarket.reduce((sum, a) => sum + a.value, 0);
@@ -571,7 +584,7 @@ export default function PortfolioTracker() {
                       <AssetAmount>
                         <AssetValue>
                           {isCashType(asset.type)
-                            ? formatTwd(getCostInTwd(asset))
+                            ? formatCashInput(asset)
                             : `${asset.amount.toLocaleString()} 單位`}
                         </AssetValue>
                         <RemoveButton onClick={() => removeAsset(asset.id)}>
@@ -644,7 +657,7 @@ export default function PortfolioTracker() {
                       />
                       <Legend />
                       {Array.from(
-                        new Map(assets.map((a) => [a.ticker, getAssetDisplayName(a)])).entries(),
+                        new Map(chartAssets.map((a) => [a.ticker, getAssetDisplayName(a)])).entries(),
                       ).map(([ticker, name], index) => (
                         <Line
                           key={ticker}

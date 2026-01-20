@@ -60,7 +60,7 @@ export async function GET(request) {
     const rate = closes[idx];
     if (rate == null) return;
     const date = new Date(ts * 1000).toISOString().split("T")[0];
-    if (date < clampedStart || date > clampedEnd) return;
+    if (date < windowStart.toISOString().split("T")[0] || date > clampedEnd) return;
     rates[date] = { TWD: rate };
   });
 
